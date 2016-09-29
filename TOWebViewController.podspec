@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.default_subspec = 'Core'
 
   s.subspec 'Core' do |core|
-    core.frameworks = 'QuartzCore', 'CoreGraphics'
+    core.frameworks = 'QuartzCore', 'CoreGraphics', 'WebKit'
     core.weak_frameworks = 'Twitter', 'MessageUI'
     core.source_files = 'TOWebViewController/**/*.{h,m}'
     core.resource_bundles = {'TOWebViewControllerLocalizable' => 'TOWebViewController/**/*.lproj'}

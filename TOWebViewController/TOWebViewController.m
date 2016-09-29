@@ -34,6 +34,8 @@
 #import <MessageUI/MFMessageComposeViewController.h>
 #import <Twitter/Twitter.h>
 
+#import <WebKit/WebKit.h>
+
 /* Detect if we're running iOS 7.0 or higher (With the new minimal UI) */
 #define MINIMAL_UI      ([[UIViewController class] instancesRespondToSelector:@selector(edgesForExtendedLayout)])
 /* Detect if we're running iOS 8.0 (With the new device rotation system) */
@@ -64,7 +66,9 @@
                                    UIPopoverControllerDelegate,
                                    MFMailComposeViewControllerDelegate,
                                    MFMessageComposeViewControllerDelegate,
-                                   NJKWebViewProgressDelegate>
+                                   NJKWebViewProgressDelegate,
+                                   WKNavigationDelegate,
+                                   WKUIDelegate>
 {
     
     //The state of the UIWebView's scroll view before the rotation animation has started
@@ -255,11 +259,21 @@
     }
     
     //Create the web view
-    self.webView = [[UIWebView alloc] initWithFrame:self.view.bounds];
-    self.webView.delegate = self.progressManager;
+    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+        self.webView = (UIWebView *)[[WKWebView alloc] initWithFrame:self.view.bounds];
+        [(WKWebView *)self.webView setNavigationDelegate:self];
+        [(WKWebView *)self.webView setUIDelegate:self];
+        
+        [self.webView addObserver:self forKeyPath:@"estimatedProgress" options:NSKeyValueObservingOptionNew context:NULL];
+    }
+    else {
+        self.webView = [[UIWebView alloc] initWithFrame:self.view.bounds];
+        self.webView.delegate = self.progressManager;
+        self.webView.scalesPageToFit = YES;
+    }
+    
     self.webView.autoresizingMask = UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleWidth;
     self.webView.backgroundColor = [UIColor clearColor];
-    self.webView.scalesPageToFit = YES;
     self.webView.contentMode = UIViewContentModeRedraw;
     self.webView.opaque = YES;
     [self.view addSubview:self.webView];
@@ -382,10 +396,20 @@
 {
     [super viewDidAppear:animated];
     //start loading the initial page
-    if (self.url && self.webView.request == nil)
-    {
-        [self.urlRequest setURL:self.url];
-        [self.webView loadRequest:self.urlRequest];
+    
+    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+        if (self.url && [(WKWebView *)self.webView URL] == nil)
+        {
+            [self.urlRequest setURL:self.url];
+            [self.webView loadRequest:self.urlRequest];
+        }
+    }
+    else {
+        if (self.url && self.webView.request == nil)
+        {
+            [self.urlRequest setURL:self.url];
+            [self.webView loadRequest:self.urlRequest];
+        }
     }
 }
 
@@ -815,19 +839,45 @@
     [self.progressView setProgress:progress animated:YES];
     
     //Query the webview to see what load state JavaScript perceives it at
-    NSString *readyState = [self.webView stringByEvaluatingJavaScriptFromString:@"document.readyState"];
+    __block NSString *readyState = nil;
+    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+        
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+        
+        [(WKWebView *)self.webView evaluateJavaScript:@"document.readyState" completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+            readyState = result;
+            dispatch_semaphore_signal(semaphore);
+        }];
+    }
+    else {
+        readyState = [self.webView stringByEvaluatingJavaScriptFromString:@"document.readyState"];
+    }
     
     //interactive means the page has loaded sufficiently to allow user interaction now
     BOOL interactive = [readyState isEqualToString:@"interactive"];
     BOOL complete = [readyState isEqualToString:@"complete"];
+    
     if (interactive || complete)
     {
         //see if we can set the proper page title yet
         if (self.showPageTitles) {
-            NSString *title = [self.webView stringByEvaluatingJavaScriptFromString:@"document.title"];
             
-            if (title.length)
-                self.title = title;
+            if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+                
+                __weak typeof(self) weak_self = self;
+                [(WKWebView *)self.webView evaluateJavaScript:@"document.title" completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+                    NSString *title = result;
+                    if (title.length)
+                        weak_self.title = title;
+                }];
+            }
+            else {
+                NSString *title = [self.webView stringByEvaluatingJavaScriptFromString:@"document.title"];
+                
+                if (title.length)
+                    self.title = title;
+            }
         }
         
         //if we're matching the view BG to the web view, update the background colour now
@@ -835,10 +885,16 @@
             self.view.backgroundColor = [self webViewPageBackgroundColor];
         
         //finally, if the app desires it, disable the ability to tap and hold on links
-        if (self.disableContextualPopupMenu)
-            [self.webView stringByEvaluatingJavaScriptFromString:@"document.body.style.webkitTouchCallout='none';"];
+        if (self.disableContextualPopupMenu) {
+            if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+                [(WKWebView *)self.webView evaluateJavaScript:@"document.body.style.webkitTouchCallout='none';" completionHandler:nil];
+            }
+            else {
+                [self.webView stringByEvaluatingJavaScriptFromString:@"document.body.style.webkitTouchCallout='none';"];
+            }
+        }
     }
-    
+
     [self refreshButtonsState];
 }
 
@@ -873,8 +929,16 @@
     //Any potential user-specified buttons
     if (self.loadCompletedApplicationBarButtonItems) {
         BOOL enabled = NO;
-        if (loaded && self.webView.request.URL.absoluteURL) {
-            enabled = YES;
+        
+        if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+            if (loaded && [(WKWebView *)self.webView URL].absoluteURL) {
+                enabled = YES;
+            }
+        }
+        else {
+            if (loaded && self.webView.request.URL.absoluteURL) {
+                enabled = YES;
+            }
         }
         
         for (UIBarButtonItem *item in self.loadCompletedApplicationBarButtonItems) {
@@ -923,12 +987,24 @@
         //it nullifies webView.request, which causes [webView reload] to stop working.
         //This checks to see if the webView request URL is nullified, and if so, tries to load
         //off our stored self.url property instead
-        if (self.webView.request.URL.absoluteString.length == 0 && self.url)
-        {
-            [self.webView loadRequest:self.urlRequest];
+        
+        if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+            if ([(WKWebView *)self.webView URL].absoluteString.length == 0 && self.url)
+            {
+                [self.webView loadRequest:self.urlRequest];
+            }
+            else {
+                [self.webView reload];
+            }
         }
         else {
-            [self.webView reload];
+            if (self.webView.request.URL.absoluteString.length == 0 && self.url)
+            {
+                [self.webView loadRequest:self.urlRequest];
+            }
+            else {
+                [self.webView reload];
+            }
         }
     }
     
@@ -1103,7 +1179,8 @@
 - (void)openInBrowser
 {
     BOOL chromeIsInstalled = [[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"googlechrome://"]];
-    NSURL *inputURL = self.webView.request.URL;
+    
+    NSURL *inputURL = NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1 ? [(WKWebView *)self.webView URL] : self.webView.request.URL;
     
     if (chromeIsInstalled)
     {
@@ -1113,7 +1190,7 @@
         NSString *chromeScheme = nil;
         if ([scheme isEqualToString:@"http"])
         {
-            chromeScheme = @"googlechrome";
+            chromeScheme = @"b";
         }
         else if ([scheme isEqualToString:@"https"])
         {
@@ -1202,7 +1279,19 @@
                                 @"}"
                                 @"})()";
     
-    NSString *pageViewPortContent = [self.webView stringByEvaluatingJavaScriptFromString:metaDataQuery];
+    __block NSString *pageViewPortContent = nil;
+    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+        [(WKWebView *)self.webView evaluateJavaScript:metaDataQuery completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+            dispatch_semaphore_signal(semaphore);
+            pageViewPortContent = result;
+        }];
+    }
+    else {
+        pageViewPortContent = [self.webView stringByEvaluatingJavaScriptFromString:metaDataQuery];
+    }
+    
     if ([pageViewPortContent length] == 0)
         return NO;
     
@@ -1703,6 +1792,35 @@
     
     //Try and restart device rotation
     [UIViewController attemptRotationToDeviceOrientation];
+}
+
+#pragma mark - WKNavigationDelegate
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    UIWebViewNavigationType type = (UIWebViewNavigationType)navigationAction.navigationType;
+    if (navigationAction.navigationType == WKNavigationTypeOther) {
+        type = UIWebViewNavigationTypeOther;
+    }
+    BOOL should = [self webView:(UIWebView *)webView shouldStartLoadWithRequest:navigationAction.request navigationType:type];
+    decisionHandler(should ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+}
+
+#pragma mark -
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+    
+    if ([keyPath isEqualToString:@"estimatedProgress"]) {
+        if (object == _webView) {
+            [self.progressView setProgress:[(WKWebView *)self.webView estimatedProgress]];
+        }
+        else {
+            [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+        }
+    }
+}
+
+- (void)dealloc {
+    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+        [self.webView removeObserver:self forKeyPath:@"estimatedProgress" context:NULL];
+    }
 }
 
 @end
