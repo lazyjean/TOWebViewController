@@ -167,7 +167,7 @@
 /* Methods to derive state information from the web view */
 - (UIView *)webViewContentView;             //pull out the actual UIView used to display the web content so we can render a snapshot from it
 - (BOOL)webViewPageWidthIsDynamic;          //The page will rescale its own content if the web view frame is changed (ie DON'T play a zooming animation)
-- (UIColor *)webViewPageBackgroundColor;    //try and determine the background colour of the current page
+- (void)webViewPageBackgroundColor:(void (^_Nonnull)(UIColor *))handler;    //try and determine the background colour of the current page
 
 @end
 
@@ -397,7 +397,7 @@
     [super viewDidAppear:animated];
     //start loading the initial page
     
-    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+    if ([self.webView isKindOfClass:[WKWebView class]]) {
         if (self.url && [(WKWebView *)self.webView URL] == nil)
         {
             [self.urlRequest setURL:self.url];
@@ -838,65 +838,66 @@
 {
     [self.progressView setProgress:progress animated:YES];
     
+    __weak typeof(self) weak_self = self;
+    void(^updateTitle)(NSString *state) = ^(NSString *readyState) {
+        
+        //interactive means the page has loaded sufficiently to allow user interaction now
+        BOOL interactive = [readyState isEqualToString:@"interactive"];
+        BOOL complete = [readyState isEqualToString:@"complete"];
+        
+        if (interactive || complete)
+        {
+            //see if we can set the proper page title yet
+            if (weak_self.showPageTitles) {
+                
+                if ([weak_self.webView isKindOfClass:[WKWebView class]]) {
+                    
+                    [(WKWebView *)weak_self.webView evaluateJavaScript:@"document.title" completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+                        NSString *title = result;
+                        if (title.length)
+                            weak_self.title = title;
+                    }];
+                }
+                else {
+                    NSString *title = [weak_self.webView stringByEvaluatingJavaScriptFromString:@"document.title"];
+                    
+                    if (title.length)
+                        weak_self.title = title;
+                }
+            }
+            
+            //if we're matching the view BG to the web view, update the background colour now
+            if (weak_self.hideWebViewBoundaries) {
+                [weak_self webViewPageBackgroundColor:^(UIColor *c) {
+                    weak_self.view.backgroundColor = c;
+                }];
+            }
+            
+            //finally, if the app desires it, disable the ability to tap and hold on links
+            if (weak_self.disableContextualPopupMenu) {
+                if ([weak_self.webView isKindOfClass:[WKWebView class]]) {
+                    [(WKWebView *)weak_self.webView evaluateJavaScript:@"document.body.style.webkitTouchCallout='none';" completionHandler:nil];
+                }
+                else {
+                    [weak_self.webView stringByEvaluatingJavaScriptFromString:@"document.body.style.webkitTouchCallout='none';"];
+                }
+            }
+        }
+    };
+    
     //Query the webview to see what load state JavaScript perceives it at
-    __block NSString *readyState = nil;
-    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
-        
-        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
-        
+    if ([self.webView isKindOfClass:[WKWebView class]]) {
         [(WKWebView *)self.webView evaluateJavaScript:@"document.readyState" completionHandler:^(id _Nullable result, NSError * _Nullable error) {
-            readyState = result;
-            dispatch_semaphore_signal(semaphore);
+            updateTitle(result);
         }];
     }
     else {
-        readyState = [self.webView stringByEvaluatingJavaScriptFromString:@"document.readyState"];
+        updateTitle([self.webView stringByEvaluatingJavaScriptFromString:@"document.readyState"]);
     }
     
-    //interactive means the page has loaded sufficiently to allow user interaction now
-    BOOL interactive = [readyState isEqualToString:@"interactive"];
-    BOOL complete = [readyState isEqualToString:@"complete"];
-    
-    if (interactive || complete)
-    {
-        //see if we can set the proper page title yet
-        if (self.showPageTitles) {
-            
-            if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
-                
-                __weak typeof(self) weak_self = self;
-                [(WKWebView *)self.webView evaluateJavaScript:@"document.title" completionHandler:^(id _Nullable result, NSError * _Nullable error) {
-                    NSString *title = result;
-                    if (title.length)
-                        weak_self.title = title;
-                }];
-            }
-            else {
-                NSString *title = [self.webView stringByEvaluatingJavaScriptFromString:@"document.title"];
-                
-                if (title.length)
-                    self.title = title;
-            }
-        }
-        
-        //if we're matching the view BG to the web view, update the background colour now
-        if (self.hideWebViewBoundaries)
-            self.view.backgroundColor = [self webViewPageBackgroundColor];
-        
-        //finally, if the app desires it, disable the ability to tap and hold on links
-        if (self.disableContextualPopupMenu) {
-            if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
-                [(WKWebView *)self.webView evaluateJavaScript:@"document.body.style.webkitTouchCallout='none';" completionHandler:nil];
-            }
-            else {
-                [self.webView stringByEvaluatingJavaScriptFromString:@"document.body.style.webkitTouchCallout='none';"];
-            }
-        }
-    }
-
     [self refreshButtonsState];
 }
+
 
 #pragma mark -
 #pragma mark UI State Handling
@@ -914,7 +915,13 @@
     else
         [self.forwardButton setEnabled:NO];
     
-    BOOL loaded = (self.progressManager.progress >= 1.0f - FLT_EPSILON);
+    BOOL loaded = NO;
+    if ([self.webView isKindOfClass:[WKWebView class]]) {
+        loaded = [(WKWebView *)self.webView estimatedProgress] >= 1.0f - FLT_EPSILON;
+    }
+    else {
+        loaded = (self.progressManager.progress >= 1.0f - FLT_EPSILON);
+    }
     
     //Stop/Reload Button
     if (!loaded) {
@@ -930,7 +937,7 @@
     if (self.loadCompletedApplicationBarButtonItems) {
         BOOL enabled = NO;
         
-        if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+        if ([self.webView isKindOfClass:[WKWebView class]]) {
             if (loaded && [(WKWebView *)self.webView URL].absoluteURL) {
                 enabled = YES;
             }
@@ -977,7 +984,13 @@
 
 - (void)reloadStopButtonTapped:(id)sender
 {
-    BOOL loaded = (self.progressManager.progress >= 1.0f - FLT_EPSILON);
+    BOOL loaded = NO;
+    if ([self.webView isKindOfClass:[WKWebView class]]) {
+        loaded = [(WKWebView *)self.webView estimatedProgress] >= 1.0f - FLT_EPSILON;
+    }
+    else {
+        loaded = (self.progressManager.progress >= 1.0f - FLT_EPSILON);
+    }
     
     //regardless of reloading, or stopping, halt the webview
     [self.webView stopLoading];
@@ -988,7 +1001,7 @@
         //This checks to see if the webView request URL is nullified, and if so, tries to load
         //off our stored self.url property instead
         
-        if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+        if ([self.webView isKindOfClass:[WKWebView class]]) {
             if ([(WKWebView *)self.webView URL].absoluteString.length == 0 && self.url)
             {
                 [self.webView loadRequest:self.urlRequest];
@@ -1180,7 +1193,7 @@
 {
     BOOL chromeIsInstalled = [[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"googlechrome://"]];
     
-    NSURL *inputURL = NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1 ? [(WKWebView *)self.webView URL] : self.webView.request.URL;
+    NSURL *inputURL = [self.webView isKindOfClass:[WKWebView class]] ? [(WKWebView *)self.webView URL] : self.webView.request.URL;
     
     if (chromeIsInstalled)
     {
@@ -1279,83 +1292,87 @@
                                 @"}"
                                 @"})()";
     
-    __block NSString *pageViewPortContent = nil;
-    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
-        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
-        [(WKWebView *)self.webView evaluateJavaScript:metaDataQuery completionHandler:^(id _Nullable result, NSError * _Nullable error) {
-            dispatch_semaphore_signal(semaphore);
-            pageViewPortContent = result;
-        }];
+    //因为WKWebView没有办法同步获取到metaData，所以我们这里就默认为动态的
+    if ([self.webView isKindOfClass:[WKWebView class]]) {
+        return YES;
     }
     else {
-        pageViewPortContent = [self.webView stringByEvaluatingJavaScriptFromString:metaDataQuery];
+        NSString *pageViewPortContent = [self.webView stringByEvaluatingJavaScriptFromString:metaDataQuery];
+        if ([pageViewPortContent length] == 0)
+            return NO;
+        
+        //remove all white space and make sure it's all lower case
+        pageViewPortContent = [[pageViewPortContent stringByReplacingOccurrencesOfString:@" " withString:@""] lowercaseString];
+        
+        //check if the max page zoom is locked at 1
+        if ([pageViewPortContent rangeOfString:@"maximum-scale=1"].location != NSNotFound)
+            return YES;
+        
+        //check if zooming is intentionally disabled
+        if ([pageViewPortContent rangeOfString:@"user-scalable=no"].location != NSNotFound)
+            return YES;
+        
+        //check if width is set to align to the width of the device
+        if ([pageViewPortContent rangeOfString:@"width=device-width"].location != NSNotFound)
+            return YES;
+        
+        //check if initial scale is being forced (Apple seem to blanket apply this in Safari)
+        if ([pageViewPortContent rangeOfString:@"initial-scale=1"].location != NSNotFound)
+            return YES;
     }
-    
-    if ([pageViewPortContent length] == 0)
-        return NO;
-    
-    //remove all white space and make sure it's all lower case
-    pageViewPortContent = [[pageViewPortContent stringByReplacingOccurrencesOfString:@" " withString:@""] lowercaseString];
-    
-    //check if the max page zoom is locked at 1
-    if ([pageViewPortContent rangeOfString:@"maximum-scale=1"].location != NSNotFound)
-        return YES;
-    
-    //check if zooming is intentionally disabled
-    if ([pageViewPortContent rangeOfString:@"user-scalable=no"].location != NSNotFound)
-        return YES;
-    
-    //check if width is set to align to the width of the device
-    if ([pageViewPortContent rangeOfString:@"width=device-width"].location != NSNotFound)
-        return YES;
-    
-    //check if initial scale is being forced (Apple seem to blanket apply this in Safari)
-    if ([pageViewPortContent rangeOfString:@"initial-scale=1"].location != NSNotFound)
-        return YES;
-    
+
     return NO;
 }
 
-- (UIColor *)webViewPageBackgroundColor
-{
+- (void)webViewPageBackgroundColor:(void (^_Nonnull)(UIColor *))handler {
+    
+    void (^handlerResult)(NSString *rgbString) = ^(NSString *rgbString){
+        //if it wasn't found, or if it isn't a proper rgb value, just return white as the default
+        if ([rgbString length] == 0 || [rgbString rangeOfString:@"rgb"].location == NSNotFound)
+            handler([UIColor whiteColor]);
+        
+        //Assuming now the input is either 'rgb(255, 0, 0)' or 'rgba(255, 0, 0, 255)'
+        
+        //remove the 'rgba' componenet
+        rgbString = [rgbString stringByReplacingOccurrencesOfString:@"rgba" withString:@""];
+        //conversely, remove the 'rgb' component
+        rgbString = [rgbString stringByReplacingOccurrencesOfString:@"rgb" withString:@""];
+        //remove the brackets
+        rgbString = [rgbString stringByReplacingOccurrencesOfString:@"(" withString:@""];
+        rgbString = [rgbString stringByReplacingOccurrencesOfString:@")" withString:@""];
+        //remove all spaces
+        rgbString = [rgbString stringByReplacingOccurrencesOfString:@" " withString:@""];
+        
+        //we should now have something like '0,0,0'. Split it up via the commas
+        NSArray *componenets = [rgbString componentsSeparatedByString:@","];
+        
+        //Final output componenets
+        CGFloat red, green, blue, alpha = 1.0f;
+        
+        //if the alpha value is 0, this indicates the RGB value wasn't actually set in the page, so just return white
+        if ([componenets count] < 3 || ([componenets count] >= 4 && [[componenets objectAtIndex:3] integerValue] == 0))
+            handler([UIColor whiteColor]);
+        
+        red     = (CGFloat)[[componenets objectAtIndex:0] integerValue] / 255.0f;
+        green   = (CGFloat)[[componenets objectAtIndex:1] integerValue] / 255.0f;
+        blue    = (CGFloat)[[componenets objectAtIndex:2] integerValue] / 255.0f;
+        
+        if ([componenets count] >= 4)
+            alpha = (CGFloat)[[componenets objectAtIndex:3] integerValue] / 255.0f;
+        
+        handler([UIColor colorWithRed:red green:green blue:blue alpha:alpha]);
+    };
+    
     //Pull the current background colour from the web view
-    NSString *rgbString = [self.webView stringByEvaluatingJavaScriptFromString:@"window.getComputedStyle(document.body,null).getPropertyValue('background-color');"];
-    
-    //if it wasn't found, or if it isn't a proper rgb value, just return white as the default
-    if ([rgbString length] == 0 || [rgbString rangeOfString:@"rgb"].location == NSNotFound)
-        return [UIColor whiteColor];
-    
-    //Assuming now the input is either 'rgb(255, 0, 0)' or 'rgba(255, 0, 0, 255)'
-    
-    //remove the 'rgba' componenet
-    rgbString = [rgbString stringByReplacingOccurrencesOfString:@"rgba" withString:@""];
-    //conversely, remove the 'rgb' component
-    rgbString = [rgbString stringByReplacingOccurrencesOfString:@"rgb" withString:@""];
-    //remove the brackets
-    rgbString = [rgbString stringByReplacingOccurrencesOfString:@"(" withString:@""];
-    rgbString = [rgbString stringByReplacingOccurrencesOfString:@")" withString:@""];
-    //remove all spaces
-    rgbString = [rgbString stringByReplacingOccurrencesOfString:@" " withString:@""];
-    
-    //we should now have something like '0,0,0'. Split it up via the commas
-    NSArray *componenets = [rgbString componentsSeparatedByString:@","];
-    
-    //Final output componenets
-    CGFloat red, green, blue, alpha = 1.0f;
-    
-    //if the alpha value is 0, this indicates the RGB value wasn't actually set in the page, so just return white
-    if ([componenets count] < 3 || ([componenets count] >= 4 && [[componenets objectAtIndex:3] integerValue] == 0))
-        return [UIColor whiteColor];
-    
-    red     = (CGFloat)[[componenets objectAtIndex:0] integerValue] / 255.0f;
-    green   = (CGFloat)[[componenets objectAtIndex:1] integerValue] / 255.0f;
-    blue    = (CGFloat)[[componenets objectAtIndex:2] integerValue] / 255.0f;
-    
-    if ([componenets count] >= 4)
-        alpha = (CGFloat)[[componenets objectAtIndex:3] integerValue] / 255.0f;
-    
-    return [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
+    if ([self.webView isKindOfClass:[WKWebView class]]) {
+        [(WKWebView *)self.webView evaluateJavaScript:@"window.getComputedStyle(document.body,null).getPropertyValue('background-color');" completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+            handlerResult(result);
+        }];
+    }
+    else {
+        NSString *rgbString = [self.webView stringByEvaluatingJavaScriptFromString:@"window.getComputedStyle(document.body,null).getPropertyValue('background-color');"];
+        handlerResult(rgbString);
+    }
 }
 
 #pragma mark -
@@ -1484,7 +1501,6 @@
     _webViewState.bottomEdgeInset   = self.webView.scrollView.contentInset.bottom;
     
     UIView  *webContentView         = [self webViewContentView];
-    UIColor *pageBackgroundColor    = [self webViewPageBackgroundColor];
     UIColor *webViewBackgroundColor = [self view].backgroundColor;
     CGRect  renderBounds            = [self rectForVisibleRegionOfWebViewAnimatingToOrientation:toOrientation];
     
@@ -1516,7 +1532,9 @@
         //If the current web page zoom is locked (eg, it's a mobile site), set an appropriate background colour and don't zoom the image
         if ([self webViewPageWidthIsDynamic])
         {
-            self.webViewRotationSnapshot.backgroundColor = pageBackgroundColor;
+            [self webViewPageBackgroundColor:^(UIColor *c) {
+                self.webViewRotationSnapshot.backgroundColor = c;
+            }];
             self.webViewRotationSnapshot.contentMode = UIViewContentModeTop;
         }
         else {
@@ -1534,7 +1552,9 @@
         //If the current web page zoom is locked like above,
         if ([self webViewPageWidthIsDynamic])
         {
-            self.webViewRotationSnapshot.backgroundColor = pageBackgroundColor;
+            [self webViewPageBackgroundColor:^(UIColor *c) {
+                self.webViewRotationSnapshot.backgroundColor = c;
+            }];
             
             //if the landscape scrolloffset is outside the bounds of the portrait mode, animate from the bottom to line it up properly
             CGFloat heightInPortraitMode = CGRectGetWidth(self.webView.frame);
@@ -1809,7 +1829,7 @@
     
     if ([keyPath isEqualToString:@"estimatedProgress"]) {
         if (object == _webView) {
-            [self.progressView setProgress:[(WKWebView *)self.webView estimatedProgress]];
+            [self webViewProgress:self.progressManager updateProgress:[(WKWebView *)self.webView estimatedProgress]];
         }
         else {
             [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
@@ -1818,7 +1838,7 @@
 }
 
 - (void)dealloc {
-    if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) {
+    if ([self.webView isKindOfClass:[WKWebView class]]) {
         [self.webView removeObserver:self forKeyPath:@"estimatedProgress" context:NULL];
     }
 }
