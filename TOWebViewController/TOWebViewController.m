@@ -1815,6 +1815,18 @@
 }
 
 #pragma mark - WKNavigationDelegate
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
+    [self webViewDidStartLoad:(UIWebView *)webView];
+}
+
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    [self webViewDidFinishLoad:(UIWebView *)webView];
+}
+
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    [self webView:(UIWebView *)webView didFailLoadWithError:error];
+}
+
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     UIWebViewNavigationType type = (UIWebViewNavigationType)navigationAction.navigationType;
     if (navigationAction.navigationType == WKNavigationTypeOther) {
