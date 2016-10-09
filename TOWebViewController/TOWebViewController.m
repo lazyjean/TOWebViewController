@@ -854,15 +854,12 @@
                     
                     [(WKWebView *)weak_self.webView evaluateJavaScript:@"document.title" completionHandler:^(id _Nullable result, NSError * _Nullable error) {
                         NSString *title = result;
-                        if (title.length)
-                            weak_self.title = title;
+                        weak_self.title = title;
                     }];
                 }
                 else {
                     NSString *title = [weak_self.webView stringByEvaluatingJavaScriptFromString:@"document.title"];
-                    
-                    if (title.length)
-                        weak_self.title = title;
+                    weak_self.title = title;
                 }
             }
             
