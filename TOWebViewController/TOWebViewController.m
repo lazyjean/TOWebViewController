@@ -1820,6 +1820,7 @@
 }
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    [self webViewProgress:self.progressManager updateProgress:[(WKWebView *)self.webView estimatedProgress]];
     [self webViewDidFinishLoad:(UIWebView *)webView];
 }
 
