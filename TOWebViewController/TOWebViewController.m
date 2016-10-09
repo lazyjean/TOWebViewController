@@ -1823,7 +1823,7 @@
     [self webViewDidFinishLoad:(UIWebView *)webView];
 }
 
-- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
     [self webView:(UIWebView *)webView didFailLoadWithError:error];
 }
 
