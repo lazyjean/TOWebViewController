@@ -1822,7 +1822,9 @@
 }
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
-    [self webView:(UIWebView *)webView didFailLoadWithError:error];
+    if ([self respondsToSelector:@selector(webView:didFailLoadWithError:)]) {
+        [self webView:(UIWebView *)webView didFailLoadWithError:error];
+    }
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
