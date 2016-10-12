@@ -106,9 +106,6 @@
 @property (nonatomic,strong) UIBarButtonItem *actionButton;           /* Shows the UIActivityViewController */
 @property (nonatomic,strong) UIBarButtonItem *doneButton;             /* The 'Done' button for modal contorllers */
 
-/* Load Progress Manager */
-@property (nonatomic,strong) NJKWebViewProgress *progressManager;
-
 /* Images for the Reload/Stop button */
 @property (nonatomic,strong) UIImage *reloadIcon;
 @property (nonatomic,strong) UIImage *stopIcon;

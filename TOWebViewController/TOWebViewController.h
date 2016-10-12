@@ -185,4 +185,7 @@ An optional block that when set, will be triggered each time the web view has fi
  */
 @property (nonatomic,assign)    CGFloat buttonBevelOpacity;
 
+/* Load Progress Manager */
+@property (nonatomic,strong) NJKWebViewProgress *progressManager;
+
 @end
