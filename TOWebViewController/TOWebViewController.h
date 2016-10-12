@@ -22,6 +22,8 @@
 
 #import <UIKit/UIKit.h>
 
+@class NJKWebViewProgress;
+
 @interface TOWebViewController : UIViewController <UIWebViewDelegate>
 
 /**
