@@ -22,8 +22,6 @@
 
 #import <UIKit/UIKit.h>
 
-@class NJKWebViewProgress;
-
 @interface TOWebViewController : UIViewController <UIWebViewDelegate>
 
 /**
@@ -186,8 +184,5 @@ An optional block that when set, will be triggered each time the web view has fi
  On iOS 6 or below, this overrides the default opacity level of the bevel around the navigation buttons.
  */
 @property (nonatomic,assign)    CGFloat buttonBevelOpacity;
-
-/* Load Progress Manager */
-@property (nonatomic,strong) NJKWebViewProgress *progressManager;
 
 @end

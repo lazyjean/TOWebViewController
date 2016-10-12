@@ -113,6 +113,9 @@
 /* Theming attributes for generating navigation button art. */
 @property (nonatomic,strong) NSMutableDictionary *buttonThemeAttributes;
 
+/* Load Progress Manager */
+@property (nonatomic,strong) NJKWebViewProgress *progressManager;
+
 /* Popover View Controller Handlers */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
