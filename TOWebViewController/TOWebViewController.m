@@ -1837,7 +1837,7 @@
     
     if (navigationAction.navigationType == WKNavigationTypeLinkActivated && navigationAction.request.URL.fragment.length > 0) {
         __weak typeof(self) weak_self = self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (weak_self) {
                 [weak_self webViewDidFinishLoad:(UIWebView *)webView];
             }
