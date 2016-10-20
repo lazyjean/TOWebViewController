@@ -1833,6 +1833,14 @@
         type = UIWebViewNavigationTypeOther;
     }
     BOOL should = [self webView:(UIWebView *)webView shouldStartLoadWithRequest:navigationAction.request navigationType:type];
+    
+    //如果使用新窗口打开时，则在当前webView加载
+    if (!navigationAction.targetFrame && should) {
+        decisionHandler(WKNavigationActionPolicyCancel);
+        [webView loadRequest:navigationAction.request];
+        return;
+    }
+    
     decisionHandler(should ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
     
     if (navigationAction.navigationType == WKNavigationTypeLinkActivated && navigationAction.request.URL.fragment.length > 0) {
